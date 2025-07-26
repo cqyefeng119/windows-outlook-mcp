@@ -2,6 +2,10 @@
 
 This is an MCP (Model Context Protocol) server for integration with Microsoft Outlook. It operates the local Outlook client on Windows via COM, providing email reading, summarization, and draft generation features. Its main advantage is fast deployment on Windows without complex security authentication.
 
+<a href="https://glama.ai/mcp/servers/@cqyefeng119/windows-outlook-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@cqyefeng119/windows-outlook-mcp/badge" alt="Outlook Server MCP server" />
+</a>
+
 ## Features
 
 ### 📧 Email Management
