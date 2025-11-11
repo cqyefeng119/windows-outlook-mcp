@@ -42,7 +42,7 @@ Add the following to your Claude Desktop configuration file:
   "mcpServers": {
     "outlook": {
       "command": "node",
-      "args": ["path/to/windows-outlook-mcp/src/index.ts"],
+      "args": ["path\\to\\windows-outlook-mcp\\dist\\index.js"],
       "env": {}
     }
   }
