@@ -1,29 +1,17 @@
 # Outlook MCP Server
 
-This is an MCP (Model Context Protocol) server for integration with Microsoft Outlook. It operates the local Outlook client on Windows via COM, providing email reading, summarization, and draft generation features. Its main advantage is fast deployment on Windows without complex security authentication.
+This is a unified MCP (Model Context Protocol) server for comprehensive Microsoft Outlook integration. It operates the local Outlook client on Windows via COM and PowerShell, providing both **email management** and **calendar management** features. Its main advantage is fast deployment on Windows without complex security authentication.
 
-## Features
 
-### 📧 Email Management
-- Retrieve inbox email list
-- Get details of a specific email by ID
-- Search emails
-- Mark emails as read
-
-### 📝 Email Summarization
-- Intelligently summarize a single email
-- Batch summarize inbox emails
-- Automatically detect email priority
-- Identify actionable emails
-
-### ✍️ Draft Generation
-- Create custom email drafts
-- Generate drafts using predefined templates
-- Intelligently generate reply drafts
-- Generate emails based on context
 
 ## Installation
 
+### 0. System Requirements
+- Windows 10/11
+- Microsoft Outlook installed and configured
+- Node.js 16.0 or higher
+- PowerShell 5.0 or higher
+- 
 ### 1. Install dependencies
 ```powershell
 cd path\to\windows-outlook-mcp
@@ -41,125 +29,28 @@ Add the following to your Claude Desktop configuration file:
 {
   "mcpServers": {
     "outlook": {
+      "type": "stdio",
       "command": "node",
-      "args": ["path/to/windows-outlook-mcp/src/index.ts"],
+      "args": ["path\\to\\windows-outlook-mcp\\dist\\index.js"],
       "env": {}
     }
   }
 }
 ```
 
-## Available Tools
-
-### Email Reading Tools
-
-#### `get_inbox_emails`
-Retrieve a list of inbox emails
-- `count` (optional): Number of emails to retrieve, default is 10
-
-#### `get_email_by_id`
-Get a specific email by ID
-- `id` (required): Email ID
-
-#### `search_emails`
-Search emails
-- `query` (required): Search keyword
-- `count` (optional): Number of results to return, default is 10
-
-### Email Summarization Tools
-
-#### `summarize_email`
-Summarize a single email
-- `email_id` (required): ID of the email to summarize
-
-#### `summarize_inbox`
-Summarize inbox emails
-- `count` (optional): Number of emails to summarize, default is 10
-
-### Draft Generation Tools
-
-#### `create_draft`
-Create an email draft
-- `to` (required): Array of recipient email addresses
-- `cc` (optional): Array of CC email addresses
-- `bcc` (optional): Array of BCC email addresses
-- `subject` (required): Email subject
-- `body` (required): Email content
-
-#### `generate_draft_from_template`
-Generate a draft using a template
-- `template_name` (required): Template name
-  - `meeting_request`: Meeting invitation
-  - `follow_up`: Follow-up email
-  - `thank_you`: Thank you email
-  - `status_update`: Status update
-- `variables` (required): Key-value pairs for template variables
-- `recipients` (required): Array of recipient email addresses
-
-#### `generate_reply_draft`
-Generate a reply draft
-- `original_email_id` (required): Original email ID
-- `reply_type` (required): Type of reply
-  - `agree`: Agree
-  - `decline`: Decline
-  - `info_request`: Request for information
-  - `custom`: Custom
-- `custom_message` (optional): Custom message content
-
-#### `generate_smart_draft`
-Intelligently generate a draft
-- `context` (required): Email context content
-- `intent` (required): Email intent
-  - `schedule_meeting`: Schedule a meeting
-  - `request_information`: Request information
-  - `project_update`: Project update
-  - `general`: General email
-- `recipients` (required): Array of recipient email addresses
-
-### Auxiliary Tools
-
-#### `get_draft_templates`
-Get the list of available templates
-
-#### `mark_email_as_read`
-Mark an email as read
-- `email_id` (required): Email ID
-
 ## Usage Examples
 
-### Retrieve and summarize latest emails
+#### Create an out-of-office event
 ```
-Please fetch and summarize the latest 5 emails.
-```
-
-### Search for specific emails
-```
-Search for emails containing the keyword "meeting".
+Create a vacation event from 2025-12-24 to 2025-12-31 marked as OutOfOffice.
 ```
 
-### Generate a meeting invitation draft
+#### Find free time slots
 ```
-Generate an email using the meeting invitation template with the subject "Project Kickoff Meeting" for tomorrow at 2 PM.
-```
-
-### Smart reply to an email
-```
-Generate an "agree" reply draft for email ID: xxx.
+Find free 30-minute slots in my calendar for next week between 9 AM and 5 PM.
 ```
 
-## System Requirements
 
-- Windows 10/11
-- Microsoft Outlook installed and configured
-- Node.js 16.0 or higher
-- PowerShell 5.0 or higher
-
-## Notes
-
-1. **Permissions**: This tool requires access to Outlook's COM interface. Make sure Outlook is running.
-2. **Security**: The tool uses PowerShell scripts to interact with Outlook. Ensure your system security policy allows this.
-3. **Performance**: Processing a large number of emails may take time. Batch processing is recommended.
-4. **Error Handling**: If you encounter COM errors, restart Outlook and try again.
 
 ## Development Notes
 
@@ -178,3 +69,33 @@ outlook/
 ```
 
 To extend functionality, modify the relevant TypeScript files and recompile.
+
+## Available Tools & Features
+
+### 📧 Email Management
+- `get_inbox_emails` - Retrieve a list of inbox emails
+- `get_sent_emails` - Retrieve a list of sent emails
+- `get_draft_emails` - Retrieve a list of draft emails
+- `get_email_by_id` - Get details of a specific email by ID
+- `search_inbox_emails` - Search inbox emails by keyword
+- `search_sent_emails` - Search sent emails by keyword
+- `search_draft_emails` - Search draft emails by keyword
+- `mark_email_as_read` - Mark an email as read
+
+### 📝 Email Summarization
+- `summarize_email` - Intelligently summarize a single email with priority detection
+- `summarize_inbox` - Batch summarize inbox emails with priority grouping
+
+### ✍️ Draft Management
+- `create_draft` - Create a new email draft with recipients, subject, and body
+- `duplicate_email_as_draft` - Duplicate an existing email as a draft (preserving formatting)
+
+### 📅 Calendar Management
+- `list_events` - List calendar events within a specified date range
+- `create_event_with_show_as` - Create a calendar event with specific Show As status (Free/Busy/OutOfOffice/etc.)
+- `set_show_as` - Set Show As status for an existing calendar event
+- `update_event` - Update an existing calendar event (time, location, description, etc.)
+- `delete_event` - Delete a calendar event by its ID
+- `find_free_slots` - Find available time slots in the calendar with customizable work hours
+- `get_attendee_status` - Check the response status of meeting attendees
+- `get_calendars` - List all available calendars

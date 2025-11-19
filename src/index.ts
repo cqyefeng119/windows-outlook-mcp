@@ -240,6 +240,218 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["source_email_id"]
         }
+      },
+      {
+        name: "set_show_as",
+        description: "Set Show As (Free/Busy status) for a calendar event",
+        inputSchema: {
+          type: "object",
+          properties: {
+            eventId: {
+              type: "string",
+              description: "Event ID to update"
+            },
+            subject: {
+              type: "string",
+              description: "Subject of the event to find"
+            },
+            startDate: {
+              type: "string",
+              description: "Start date of the event to find (ISO 8601 format)"
+            },
+            showAs: {
+              type: "string",
+              enum: ["Free", "Tentative", "Busy", "OutOfOffice", "WorkingElsewhere"],
+              description: "Show As status to set"
+            }
+          },
+          required: ["showAs"]
+        }
+      },
+      {
+        name: "create_event_with_show_as",
+        description: "Create a calendar event with specific Show As status (e.g., OutOfOffice for vacation)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            subject: {
+              type: "string",
+              description: "Event subject/title"
+            },
+            start: {
+              type: "string",
+              description: "Start date and time (ISO 8601 format)"
+            },
+            end: {
+              type: "string",
+              description: "End date and time (ISO 8601 format)"
+            },
+            location: {
+              type: "string",
+              description: "Event location"
+            },
+            body: {
+              type: "string",
+              description: "Event description/body"
+            },
+            showAs: {
+              type: "string",
+              enum: ["Free", "Tentative", "Busy", "OutOfOffice", "WorkingElsewhere"],
+              description: "Show As status (default: Busy)"
+            },
+            reminderMinutes: {
+              type: "number",
+              description: "Reminder time in minutes before the event"
+            }
+          },
+          required: ["subject", "start", "end"]
+        }
+      },
+      {
+        name: "list_events",
+        description: "List calendar events within a specified date range",
+        inputSchema: {
+          type: "object",
+          properties: {
+            startDate: {
+              type: "string",
+              description: "Start date (ISO 8601 format)"
+            },
+            endDate: {
+              type: "string",
+              description: "End date (ISO 8601 format, optional)"
+            },
+            calendar: {
+              type: "string",
+              description: "Calendar name (optional)"
+            }
+          },
+          required: ["startDate"]
+        }
+      },
+      {
+        name: "update_event",
+        description: "Update an existing calendar event",
+        inputSchema: {
+          type: "object",
+          properties: {
+            eventId: {
+              type: "string",
+              description: "Event ID to update"
+            },
+            subject: {
+              type: "string",
+              description: "New event subject/title (optional)"
+            },
+            startDate: {
+              type: "string",
+              description: "New start date in MM/DD/YYYY format (optional)"
+            },
+            startTime: {
+              type: "string",
+              description: "New start time in HH:MM AM/PM format (optional)"
+            },
+            endDate: {
+              type: "string",
+              description: "New end date in MM/DD/YYYY format (optional)"
+            },
+            endTime: {
+              type: "string",
+              description: "New end time in HH:MM AM/PM format (optional)"
+            },
+            location: {
+              type: "string",
+              description: "New event location (optional)"
+            },
+            body: {
+              type: "string",
+              description: "New event description/body (optional)"
+            },
+            calendar: {
+              type: "string",
+              description: "Calendar name (optional)"
+            }
+          },
+          required: ["eventId"]
+        }
+      },
+      {
+        name: "delete_event",
+        description: "Delete a calendar event by its ID",
+        inputSchema: {
+          type: "object",
+          properties: {
+            eventId: {
+              type: "string",
+              description: "Event ID to delete"
+            },
+            calendar: {
+              type: "string",
+              description: "Calendar name (optional)"
+            }
+          },
+          required: ["eventId"]
+        }
+      },
+      {
+        name: "find_free_slots",
+        description: "Find available time slots in the calendar",
+        inputSchema: {
+          type: "object",
+          properties: {
+            startDate: {
+              type: "string",
+              description: "Start date (ISO 8601 format)"
+            },
+            endDate: {
+              type: "string",
+              description: "End date (ISO 8601 format, optional, defaults to 7 days from start)"
+            },
+            duration: {
+              type: "number",
+              description: "Duration in minutes (optional, defaults to 30)"
+            },
+            workDayStart: {
+              type: "number",
+              description: "Work day start hour (0-23) (optional, defaults to 9)"
+            },
+            workDayEnd: {
+              type: "number",
+              description: "Work day end hour (0-23) (optional, defaults to 17)"
+            },
+            calendar: {
+              type: "string",
+              description: "Calendar name (optional)"
+            }
+          },
+          required: ["startDate"]
+        }
+      },
+      {
+        name: "get_attendee_status",
+        description: "Check the response status of meeting attendees",
+        inputSchema: {
+          type: "object",
+          properties: {
+            eventId: {
+              type: "string",
+              description: "Event ID"
+            },
+            calendar: {
+              type: "string",
+              description: "Calendar name (optional)"
+            }
+          },
+          required: ["eventId"]
+        }
+      },
+      {
+        name: "get_calendars",
+        description: "List available calendars",
+        inputSchema: {
+          type: "object",
+          properties: {}
+        }
       }
     ]
   };
@@ -465,6 +677,156 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: `✅ **Email duplicated successfully**\n\n**Result:** ${result}${newSubject ? `\n**New Subject:** ${newSubject}` : ''}${newRecipients ? `\n**New Recipients:** ${newRecipients.join(', ')}` : ''}`,
+            },
+          ],
+        };
+      }
+
+      case 'set_show_as': {
+        const options = {
+          eventId: (args as any)?.eventId,
+          subject: (args as any)?.subject,
+          startDate: (args as any)?.startDate ? new Date((args as any).startDate) : undefined,
+          showAs: (args as any)?.showAs
+        };
+        const result = await outlookManager.setShowAs(options);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `${result.success ? '✅' : '❌'} **Show As Updated**\n\n${result.message}`,
+            },
+          ],
+        };
+      }
+
+      case 'create_event_with_show_as': {
+        const result = await outlookManager.createEventWithShowAs({
+          subject: (args as any)?.subject,
+          start: new Date((args as any)?.start),
+          end: new Date((args as any)?.end),
+          location: (args as any)?.location,
+          body: (args as any)?.body,
+          showAs: (args as any)?.showAs,
+          reminderMinutes: (args as any)?.reminderMinutes
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `${result.success ? '✅' : '❌'} **Calendar Event Created**\n\n${result.message}\n\n**Event ID:** ${result.eventId}`,
+            },
+          ],
+        };
+      }
+
+      case 'list_events': {
+        const events = await outlookManager.listEvents({
+          startDate: new Date((args as any)?.startDate),
+          endDate: (args as any)?.endDate ? new Date((args as any)?.endDate) : undefined,
+          calendar: (args as any)?.calendar
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `📅 **Calendar Events**\nTotal: ${events.length} events\n\n` +
+                   events.map((event, index) => 
+                     `${index + 1}. **${event.Subject}**\n   📍 ${event.Location || 'No location'}\n   🕐 ${event.Start} - ${event.End}\n   📋 ${event.Body ? event.Body.substring(0, 100) + '...' : 'No description'}\n   ID: ${event.Id}\n`
+                   ).join('\n')
+            },
+          ],
+        };
+      }
+
+      case 'update_event': {
+        const result = await outlookManager.updateEvent({
+          eventId: (args as any)?.eventId,
+          subject: (args as any)?.subject,
+          startDate: (args as any)?.startDate,
+          startTime: (args as any)?.startTime,
+          endDate: (args as any)?.endDate,
+          endTime: (args as any)?.endTime,
+          location: (args as any)?.location,
+          body: (args as any)?.body,
+          calendar: (args as any)?.calendar
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `${result.success ? '✅' : '❌'} **Event Update**\n\n${result.message}`,
+            },
+          ],
+        };
+      }
+
+      case 'delete_event': {
+        const result = await outlookManager.deleteEvent({
+          eventId: (args as any)?.eventId,
+          calendar: (args as any)?.calendar
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `${result.success ? '✅' : '❌'} **Event Deletion**\n\n${result.message}`,
+            },
+          ],
+        };
+      }
+
+      case 'find_free_slots': {
+        const freeSlots = await outlookManager.findFreeSlots({
+          startDate: new Date((args as any)?.startDate),
+          endDate: (args as any)?.endDate ? new Date((args as any)?.endDate) : undefined,
+          duration: (args as any)?.duration,
+          workDayStart: (args as any)?.workDayStart,
+          workDayEnd: (args as any)?.workDayEnd,
+          calendar: (args as any)?.calendar
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `🆓 **Free Time Slots**\nTotal: ${freeSlots.length} slots found\n\n` +
+                   freeSlots.slice(0, 20).map((slot, index) => 
+                     `${index + 1}. ${slot.Start} - ${slot.End}`
+                   ).join('\n') +
+                   (freeSlots.length > 20 ? `\n\n... and ${freeSlots.length - 20} more slots` : '')
+            },
+          ],
+        };
+      }
+
+      case 'get_attendee_status': {
+        const attendeeStatus = await outlookManager.getAttendeeStatus({
+          eventId: (args as any)?.eventId,
+          calendar: (args as any)?.calendar
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `👥 **Meeting Attendee Status**\n\n**Subject:** ${attendeeStatus.Subject}\n**Time:** ${attendeeStatus.Start} - ${attendeeStatus.End}\n**Location:** ${attendeeStatus.Location || 'N/A'}\n**Organizer:** ${attendeeStatus.Organizer}\n\n**Attendees:**\n` +
+                   attendeeStatus.Attendees.map((attendee: any, index: number) => 
+                     `${index + 1}. ${attendee.Name} (${attendee.Email})\n   Status: ${attendee.ResponseStatus}`
+                   ).join('\n')
+            },
+          ],
+        };
+      }
+
+      case 'get_calendars': {
+        const calendars = await outlookManager.getCalendars();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `📅 **Available Calendars**\nTotal: ${calendars.length} calendars\n\n` +
+                   calendars.map((calendar, index) => 
+                     `${index + 1}. ${calendar.IsDefault ? '⭐' : '📅'} **${calendar.Name}**\n   Owner: ${calendar.Owner}`
+                   ).join('\n')
             },
           ],
         };

@@ -472,4 +472,656 @@ export class OutlookManager {
     }
     return 'Draft created successfully using ReplyAll method';
   }
+
+  /**
+   * Set Show As (Free/Busy status) for calendar events
+   */
+  async setShowAs(options: {
+    eventId?: string;
+    subject?: string;
+    startDate?: Date;
+    showAs: 'Free' | 'Tentative' | 'Busy' | 'OutOfOffice' | 'WorkingElsewhere';
+  }): Promise<{ success: boolean; message: string }> {
+    try {
+      // Map ShowAs values to Outlook constants
+      const showAsMap: Record<string, number> = {
+        'Free': 0,           // olFree
+        'Tentative': 1,      // olTentative
+        'Busy': 2,           // olBusy
+        'OutOfOffice': 3,    // olOutOfOffice
+        'WorkingElsewhere': 4 // olWorkingElsewhere
+      };
+
+      const busyStatus = showAsMap[options.showAs];
+      const eventId = options.eventId ? `"${options.eventId.replace(/"/g, '""')}"` : 'null';
+      const subject = options.subject ? `"${options.subject.replace(/"/g, '""')}"` : 'null';
+      const startDate = options.startDate ? `"${options.startDate.toISOString()}"` : 'null';
+
+      const script = `
+        try {
+          Add-Type -AssemblyName "Microsoft.Office.Interop.Outlook" -ErrorAction Stop
+          $outlook = New-Object -ComObject Outlook.Application -ErrorAction Stop
+          $namespace = $outlook.GetNamespace("MAPI")
+          $calendar = $namespace.GetDefaultFolder(9)
+          
+          $appointmentItem = $null
+          
+          # Find by ID if provided
+          if (${eventId} -ne $null) {
+            try {
+              $appointmentItem = $namespace.GetItemFromID(${eventId})
+            } catch { }
+          }
+          
+          # Search by subject or date if not found
+          if (-not $appointmentItem) {
+            $items = $calendar.Items
+            $items.Sort("[Start]")
+            
+            foreach ($item in $items) {
+              $matchSubject = (${subject} -eq $null) -or ($item.Subject -like "*$(${subject})*")
+              $matchDate = (${startDate} -eq $null) -or ([Math]::Abs(([DateTime]$item.Start - [DateTime]${startDate}).TotalMinutes) -lt 1)
+              
+              if ($matchSubject -and $matchDate) {
+                $appointmentItem = $item
+                break
+              }
+            }
+          }
+          
+          if (-not $appointmentItem) {
+            throw "Appointment not found. Please provide eventId, subject, or startDate."
+          }
+          
+          $appointmentItem.BusyStatus = ${busyStatus}
+          $appointmentItem.Save()
+          
+          Write-Output ([PSCustomObject]@{
+            Success = $true
+            Subject = $appointmentItem.Subject
+            ShowAs = "${options.showAs}"
+          } | ConvertTo-Json -Compress)
+          
+        } catch {
+          Write-Output ([PSCustomObject]@{
+            Success = $false
+            Error = $_.Exception.Message
+          } | ConvertTo-Json -Compress)
+        }
+      `;
+
+      const result = await this.executePowerShell(script);
+      const cleanResult = result.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+      const data = JSON.parse(cleanResult);
+
+      if (!data.Success) {
+        throw new Error(data.Error || 'Failed to set Show As');
+      }
+
+      return {
+        success: true,
+        message: `Show As set to ${options.showAs} for: ${data.Subject}`
+      };
+    } catch (error) {
+      throw new Error(`Failed to set Show As: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Create calendar event with Show As setting
+   */
+  async createEventWithShowAs(options: {
+    subject: string;
+    start: Date;
+    end: Date;
+    location?: string;
+    body?: string;
+    showAs?: 'Free' | 'Tentative' | 'Busy' | 'OutOfOffice' | 'WorkingElsewhere';
+    reminderMinutes?: number;
+  }): Promise<{ success: boolean; eventId: string; message: string }> {
+    try {
+      // Map ShowAs values to Outlook constants
+      const showAsMap: Record<string, number> = {
+        'Free': 0,
+        'Tentative': 1,
+        'Busy': 2,
+        'OutOfOffice': 3,
+        'WorkingElsewhere': 4
+      };
+
+      const busyStatus = showAsMap[options.showAs || 'Busy'];
+      const cleanSubject = this.cleanText(options.subject);
+      const cleanLocation = options.location ? this.cleanText(options.location) : '';
+      const cleanBody = options.body ? this.cleanText(options.body) : '';
+      
+      const script = `
+        try {
+          Add-Type -AssemblyName "Microsoft.Office.Interop.Outlook" -ErrorAction Stop
+          $outlook = New-Object -ComObject Outlook.Application -ErrorAction Stop
+          $appointmentItem = $outlook.CreateItem(1)
+          
+          $appointmentItem.Subject = "${cleanSubject.replace(/"/g, '""')}"
+          $appointmentItem.Start = [DateTime]"${options.start.toISOString()}"
+          $appointmentItem.End = [DateTime]"${options.end.toISOString()}"
+          
+          ${options.location ? `$appointmentItem.Location = "${cleanLocation.replace(/"/g, '""')}"` : ''}
+          ${options.body ? `$appointmentItem.Body = "${cleanBody.replace(/"/g, '""')}"` : ''}
+          
+          $appointmentItem.BusyStatus = ${busyStatus}
+          
+          ${options.reminderMinutes !== undefined ? `
+          $appointmentItem.ReminderSet = $true
+          $appointmentItem.ReminderMinutesBeforeStart = ${options.reminderMinutes}
+          ` : ''}
+          
+          $appointmentItem.Save()
+          
+          Write-Output ([PSCustomObject]@{
+            Success = $true
+            EventId = $appointmentItem.EntryID
+            Subject = $appointmentItem.Subject
+            ShowAs = "${options.showAs || 'Busy'}"
+          } | ConvertTo-Json -Compress)
+          
+        } catch {
+          Write-Output ([PSCustomObject]@{
+            Success = $false
+            Error = $_.Exception.Message
+          } | ConvertTo-Json -Compress)
+        }
+      `;
+
+      const result = await this.executePowerShell(script);
+      const cleanResult = result.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+      const data = JSON.parse(cleanResult);
+
+      if (!data.Success) {
+        throw new Error(data.Error || 'Failed to create event');
+      }
+
+      return {
+        success: true,
+        eventId: data.EventId,
+        message: `Event created: ${data.Subject} with Show As: ${data.ShowAs}`
+      };
+    } catch (error) {
+      throw new Error(`Failed to create event with Show As: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * List calendar events within a date range
+   */
+  async listEvents(options: {
+    startDate: Date;
+    endDate?: Date;
+    calendar?: string;
+  }): Promise<any[]> {
+    try {
+      const endDate = options.endDate || options.startDate;
+      const calendarName = options.calendar || '';
+      
+      const script = `
+        try {
+          Add-Type -AssemblyName "Microsoft.Office.Interop.Outlook" -ErrorAction Stop
+          $outlook = New-Object -ComObject Outlook.Application -ErrorAction Stop
+          $namespace = $outlook.GetNamespace("MAPI")
+          
+          # Get calendar
+          ${calendarName ? `
+          $calendar = $null
+          foreach ($folder in $namespace.Folders) {
+            if ($folder.Name -eq "${calendarName.replace(/"/g, '""')}") {
+              $calendar = $folder.Folders("Calendar")
+              break
+            }
+          }
+          if (-not $calendar) { throw "Calendar not found: ${calendarName.replace(/"/g, '""')}" }
+          ` : `
+          $calendar = $namespace.GetDefaultFolder(9)
+          `}
+          
+          # Create filter for date range
+          $startDate = [DateTime]"${options.startDate.toISOString()}"
+          $endDate = [DateTime]"${endDate.toISOString()}".AddDays(1)
+          $filter = "[Start] >= '$($startDate.ToString('g'))' AND [End] <= '$($endDate.ToString('g'))'"
+          
+          # Get events
+          $items = $calendar.Items.Restrict($filter)
+          $items.Sort("[Start]")
+          
+          # Build JSON array
+          $events = @()
+          foreach ($item in $items) {
+            $events += [PSCustomObject]@{
+              Id = $item.EntryID
+              Subject = $item.Subject
+              Start = $item.Start.ToString("yyyy-MM-ddTHH:mm:ss")
+              End = $item.End.ToString("yyyy-MM-ddTHH:mm:ss")
+              Location = if ($item.Location) { $item.Location } else { "" }
+              Body = if ($item.Body) { $item.Body } else { "" }
+              BusyStatus = $item.BusyStatus
+              IsAllDayEvent = $item.AllDayEvent
+              Organizer = if ($item.Organizer) { $item.Organizer } else { "" }
+              RequiredAttendees = if ($item.RequiredAttendees) { $item.RequiredAttendees } else { "" }
+            }
+          }
+          
+          Write-Output ($events | ConvertTo-Json -Compress)
+          
+        } catch {
+          Write-Output ([PSCustomObject]@{
+            Error = $_.Exception.Message
+          } | ConvertTo-Json -Compress)
+        }
+      `;
+
+      const result = await this.executePowerShell(script);
+      const cleanResult = result.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+      
+      if (!cleanResult || cleanResult === '') {
+        return [];
+      }
+      
+      const data = JSON.parse(cleanResult);
+      
+      if (data.Error) {
+        throw new Error(data.Error);
+      }
+      
+      return Array.isArray(data) ? data : [data];
+    } catch (error) {
+      throw new Error(`Failed to list events: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Update an existing calendar event
+   */
+  async updateEvent(options: {
+    eventId: string;
+    subject?: string;
+    startDate?: string;
+    startTime?: string;
+    endDate?: string;
+    endTime?: string;
+    location?: string;
+    body?: string;
+    calendar?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    try {
+      const calendarName = options.calendar || '';
+      let startDateTime = '';
+      let endDateTime = '';
+      
+      if (options.startDate && options.startTime) {
+        startDateTime = `${options.startDate} ${options.startTime}`;
+      }
+      
+      if (options.endDate && options.endTime) {
+        endDateTime = `${options.endDate} ${options.endTime}`;
+      } else if (startDateTime) {
+        // Default to 30 minutes after start
+        endDateTime = 'ADD30MIN';
+      }
+      
+      const script = `
+        try {
+          Add-Type -AssemblyName "Microsoft.Office.Interop.Outlook" -ErrorAction Stop
+          $outlook = New-Object -ComObject Outlook.Application -ErrorAction Stop
+          $namespace = $outlook.GetNamespace("MAPI")
+          
+          # Get appointment
+          $appointment = $namespace.GetItemFromID("${options.eventId.replace(/"/g, '""')}")
+          
+          if (-not $appointment) {
+            throw "Event not found with ID: ${options.eventId.replace(/"/g, '""')}"
+          }
+          
+          # Update properties
+          ${options.subject ? `$appointment.Subject = "${options.subject.replace(/"/g, '""')}"` : ''}
+          ${startDateTime ? `$appointment.Start = [DateTime]"${startDateTime.replace(/"/g, '""')}"` : ''}
+          ${endDateTime === 'ADD30MIN' ? `$appointment.End = $appointment.Start.AddMinutes(30)` : endDateTime ? `$appointment.End = [DateTime]"${endDateTime.replace(/"/g, '""')}"` : ''}
+          ${options.location ? `$appointment.Location = "${options.location.replace(/"/g, '""')}"` : ''}
+          ${options.body ? `$appointment.Body = "${options.body.replace(/"/g, '""')}"` : ''}
+          
+          $appointment.Save()
+          
+          Write-Output ([PSCustomObject]@{
+            Success = $true
+          } | ConvertTo-Json -Compress)
+          
+        } catch {
+          Write-Output ([PSCustomObject]@{
+            Success = $false
+            Error = $_.Exception.Message
+          } | ConvertTo-Json -Compress)
+        }
+      `;
+
+      const result = await this.executePowerShell(script);
+      const cleanResult = result.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+      const data = JSON.parse(cleanResult);
+
+      if (!data.Success) {
+        throw new Error(data.Error || 'Failed to update event');
+      }
+
+      return {
+        success: true,
+        message: 'Event updated successfully'
+      };
+    } catch (error) {
+      throw new Error(`Failed to update event: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Delete a calendar event
+   */
+  async deleteEvent(options: {
+    eventId: string;
+    calendar?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    try {
+      const script = `
+        try {
+          Add-Type -AssemblyName "Microsoft.Office.Interop.Outlook" -ErrorAction Stop
+          $outlook = New-Object -ComObject Outlook.Application -ErrorAction Stop
+          $namespace = $outlook.GetNamespace("MAPI")
+          
+          # Get appointment
+          $appointment = $namespace.GetItemFromID("${options.eventId.replace(/"/g, '""')}")
+          
+          if (-not $appointment) {
+            throw "Event not found with ID: ${options.eventId.replace(/"/g, '""')}"
+          }
+          
+          # Delete the appointment
+          $appointment.Delete()
+          
+          Write-Output ([PSCustomObject]@{
+            Success = $true
+          } | ConvertTo-Json -Compress)
+          
+        } catch {
+          Write-Output ([PSCustomObject]@{
+            Success = $false
+            Error = $_.Exception.Message
+          } | ConvertTo-Json -Compress)
+        }
+      `;
+
+      const result = await this.executePowerShell(script);
+      const cleanResult = result.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+      const data = JSON.parse(cleanResult);
+
+      if (!data.Success) {
+        throw new Error(data.Error || 'Failed to delete event');
+      }
+
+      return {
+        success: true,
+        message: 'Event deleted successfully'
+      };
+    } catch (error) {
+      throw new Error(`Failed to delete event: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Find free time slots in calendar
+   */
+  async findFreeSlots(options: {
+    startDate: Date;
+    endDate?: Date;
+    duration?: number;
+    workDayStart?: number;
+    workDayEnd?: number;
+    calendar?: string;
+  }): Promise<any[]> {
+    try {
+      const endDate = options.endDate || new Date(options.startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const duration = options.duration || 30;
+      const workDayStart = options.workDayStart || 9;
+      const workDayEnd = options.workDayEnd || 17;
+      const calendarName = options.calendar || '';
+      
+      const script = `
+        try {
+          Add-Type -AssemblyName "Microsoft.Office.Interop.Outlook" -ErrorAction Stop
+          $outlook = New-Object -ComObject Outlook.Application -ErrorAction Stop
+          $namespace = $outlook.GetNamespace("MAPI")
+          
+          # Get calendar
+          ${calendarName ? `
+          $calendar = $null
+          foreach ($folder in $namespace.Folders) {
+            if ($folder.Name -eq "${calendarName.replace(/"/g, '""')}") {
+              $calendar = $folder.Folders("Calendar")
+              break
+            }
+          }
+          if (-not $calendar) { throw "Calendar not found: ${calendarName.replace(/"/g, '""')}" }
+          ` : `
+          $calendar = $namespace.GetDefaultFolder(9)
+          `}
+          
+          # Get all events in date range
+          $startDate = [DateTime]"${options.startDate.toISOString()}"
+          $endDate = [DateTime]"${endDate.toISOString()}"
+          $filter = "[Start] >= '$($startDate.ToString('g'))' AND [End] <= '$($endDate.AddDays(1).ToString('g'))'"
+          $items = $calendar.Items.Restrict($filter)
+          
+          # Build busy slots array
+          $busySlots = @()
+          foreach ($item in $items) {
+            if ($item.BusyStatus -eq 2 -or $item.BusyStatus -eq 3) { # Busy or OutOfOffice
+              $busySlots += [PSCustomObject]@{
+                Start = $item.Start
+                End = $item.End
+              }
+            }
+          }
+          
+          # Find free slots
+          $freeSlots = @()
+          $currentDate = $startDate.Date
+          
+          while ($currentDate -le $endDate.Date) {
+            # Skip weekends
+            $dayOfWeek = $currentDate.DayOfWeek
+            if ($dayOfWeek -ne [DayOfWeek]::Saturday -and $dayOfWeek -ne [DayOfWeek]::Sunday) {
+              $slotStart = $currentDate.AddHours(${workDayStart})
+              $workDayEndTime = $currentDate.AddHours(${workDayEnd})
+              
+              while ($slotStart.AddMinutes(${duration}) -le $workDayEndTime) {
+                $slotEnd = $slotStart.AddMinutes(${duration})
+                
+                # Check if slot is free
+                $isFree = $true
+                foreach ($busy in $busySlots) {
+                  if ($slotStart -lt $busy.End -and $slotEnd -gt $busy.Start) {
+                    $isFree = $false
+                    break
+                  }
+                }
+                
+                if ($isFree) {
+                  $freeSlots += [PSCustomObject]@{
+                    Start = $slotStart.ToString("yyyy-MM-ddTHH:mm:ss")
+                    End = $slotEnd.ToString("yyyy-MM-ddTHH:mm:ss")
+                  }
+                }
+                
+                $slotStart = $slotStart.AddMinutes(30)
+              }
+            }
+            
+            $currentDate = $currentDate.AddDays(1)
+          }
+          
+          Write-Output ($freeSlots | ConvertTo-Json -Compress)
+          
+        } catch {
+          Write-Output ([PSCustomObject]@{
+            Error = $_.Exception.Message
+          } | ConvertTo-Json -Compress)
+        }
+      `;
+
+      const result = await this.executePowerShell(script);
+      const cleanResult = result.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+      
+      if (!cleanResult || cleanResult === '' || cleanResult === '[]') {
+        return [];
+      }
+      
+      const data = JSON.parse(cleanResult);
+      
+      if (data.Error) {
+        throw new Error(data.Error);
+      }
+      
+      return Array.isArray(data) ? data : [data];
+    } catch (error) {
+      throw new Error(`Failed to find free slots: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Get attendee status for a meeting
+   */
+  async getAttendeeStatus(options: {
+    eventId: string;
+    calendar?: string;
+  }): Promise<any> {
+    try {
+      const script = `
+        try {
+          Add-Type -AssemblyName "Microsoft.Office.Interop.Outlook" -ErrorAction Stop
+          $outlook = New-Object -ComObject Outlook.Application -ErrorAction Stop
+          $namespace = $outlook.GetNamespace("MAPI")
+          
+          # Get appointment
+          $appointment = $namespace.GetItemFromID("${options.eventId.replace(/"/g, '""')}")
+          
+          if (-not $appointment) {
+            throw "Event not found with ID: ${options.eventId.replace(/"/g, '""')}"
+          }
+          
+          # Check if it's a meeting
+          if ($appointment.MeetingStatus -eq 0) { # olNonMeeting
+            throw "The specified event is not a meeting"
+          }
+          
+          # Get attendees
+          $attendees = @()
+          foreach ($recipient in $appointment.Recipients) {
+            $responseStatus = switch ($recipient.MeetingResponseStatus) {
+              1 { "Organizer" }
+              2 { "Tentative" }
+              3 { "Accepted" }
+              4 { "Declined" }
+              0 { "Not Responded" }
+              default { "Unknown" }
+            }
+            
+            $attendees += [PSCustomObject]@{
+              Name = $recipient.Name
+              Email = if ($recipient.Address) { $recipient.Address } else { $recipient.Name }
+              ResponseStatus = $responseStatus
+            }
+          }
+          
+          # Build result
+          $result = [PSCustomObject]@{
+            Subject = $appointment.Subject
+            Start = $appointment.Start.ToString("yyyy-MM-ddTHH:mm:ss")
+            End = $appointment.End.ToString("yyyy-MM-ddTHH:mm:ss")
+            Location = if ($appointment.Location) { $appointment.Location } else { "" }
+            Organizer = if ($appointment.Organizer) { $appointment.Organizer } else { "" }
+            Attendees = $attendees
+          }
+          
+          Write-Output ($result | ConvertTo-Json -Compress -Depth 3)
+          
+        } catch {
+          Write-Output ([PSCustomObject]@{
+            Error = $_.Exception.Message
+          } | ConvertTo-Json -Compress)
+        }
+      `;
+
+      const result = await this.executePowerShell(script);
+      const cleanResult = result.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+      const data = JSON.parse(cleanResult);
+
+      if (data.Error) {
+        throw new Error(data.Error);
+      }
+
+      return data;
+    } catch (error) {
+      throw new Error(`Failed to get attendee status: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Get available calendars
+   */
+  async getCalendars(): Promise<any[]> {
+    try {
+      const script = `
+        try {
+          Add-Type -AssemblyName "Microsoft.Office.Interop.Outlook" -ErrorAction Stop
+          $outlook = New-Object -ComObject Outlook.Application -ErrorAction Stop
+          $namespace = $outlook.GetNamespace("MAPI")
+          
+          # Build calendars array
+          $calendars = @()
+          
+          # Add default calendar
+          $calendars += [PSCustomObject]@{
+            Name = "Default"
+            Owner = $namespace.CurrentUser.Name
+            IsDefault = $true
+          }
+          
+          # Add other calendars
+          foreach ($folder in $namespace.Folders) {
+            try {
+              $calendarFolder = $folder.Folders("Calendar")
+              if ($calendarFolder) {
+                $calendars += [PSCustomObject]@{
+                  Name = "$($folder.Name) - Calendar"
+                  Owner = $folder.Name
+                  IsDefault = $false
+                }
+              }
+            } catch { }
+          }
+          
+          Write-Output ($calendars | ConvertTo-Json -Compress)
+          
+        } catch {
+          Write-Output ([PSCustomObject]@{
+            Error = $_.Exception.Message
+          } | ConvertTo-Json -Compress)
+        }
+      `;
+
+      const result = await this.executePowerShell(script);
+      const cleanResult = result.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+      const data = JSON.parse(cleanResult);
+
+      if (data.Error) {
+        throw new Error(data.Error);
+      }
+
+      return Array.isArray(data) ? data : [data];
+    } catch (error) {
+      throw new Error(`Failed to get calendars: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
